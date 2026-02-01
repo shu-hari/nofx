@@ -1391,11 +1391,8 @@ func (at *AutoTrader) executeCloseShortWithRecord(decision *kernel.Decision, act
 	return nil
 }
 
-// executeMoveStopWithRecord moves stop-loss for existing positions (Binance only).
+// executeMoveStopWithRecord moves stop-loss for existing positions.
 func (at *AutoTrader) executeMoveStopWithRecord(decision *kernel.Decision, actionRecord *store.DecisionAction) error {
-	if at.exchange != "binance" {
-		return fmt.Errorf("move_stop is only supported on binance")
-	}
 	if decision.StopLoss <= 0 {
 		return fmt.Errorf("stop_loss must be greater than 0: %.2f", decision.StopLoss)
 	}
