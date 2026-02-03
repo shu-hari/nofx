@@ -1015,6 +1015,8 @@ func (at *AutoTrader) executeDecisionWithRecord(decision *kernel.Decision, actio
 		return at.executeCloseLongWithRecord(decision, actionRecord)
 	case "close_short":
 		return at.executeCloseShortWithRecord(decision, actionRecord)
+	case "move_stop":
+		return at.executeMoveStopWithRecord(decision, actionRecord)
 	case "hold", "wait":
 		// No execution needed, just record
 		return nil
@@ -1412,6 +1414,52 @@ func (at *AutoTrader) executeCloseShortWithRecord(decision *kernel.Decision, act
 	return nil
 }
 
+// executeMoveStopWithRecord moves stop-loss for existing positions.
+func (at *AutoTrader) executeMoveStopWithRecord(decision *kernel.Decision, actionRecord *store.DecisionAction) error {
+	if decision.StopLoss <= 0 {
+		return fmt.Errorf("stop_loss must be greater than 0: %.2f", decision.StopLoss)
+	}
+
+	positions, err := at.trader.GetPositions()
+	if err != nil {
+		return fmt.Errorf("failed to get positions: %w", err)
+	}
+
+	var matchedPositions []map[string]interface{}
+	for _, pos := range positions {
+		if pos["symbol"] == decision.Symbol {
+			matchedPositions = append(matchedPositions, pos)
+		}
+	}
+
+	if len(matchedPositions) == 0 {
+		return fmt.Errorf("no open position found for %s", decision.Symbol)
+	}
+
+	if err := at.trader.CancelStopLossOrders(decision.Symbol); err != nil {
+		return fmt.Errorf("failed to cancel stop-loss orders: %w", err)
+	}
+
+	for _, pos := range matchedPositions {
+		quantity := pos["positionAmt"].(float64)
+		if quantity < 0 {
+			quantity = -quantity
+		}
+		if quantity == 0 {
+			continue
+		}
+
+		positionSide := strings.ToUpper(pos["side"].(string))
+		if err := at.trader.SetStopLoss(decision.Symbol, positionSide, quantity, decision.StopLoss); err != nil {
+			return fmt.Errorf("failed to move stop-loss for %s %s: %w", decision.Symbol, positionSide, err)
+		}
+	}
+
+	logger.Infof("  ✓ Stop-loss moved: %s -> %.4f", decision.Symbol, decision.StopLoss)
+	actionRecord.StopLoss = decision.StopLoss
+	return nil
+}
+
 // GetID gets trader ID
 func (at *AutoTrader) GetID() string {
 	return at.id
@@ -1722,10 +1770,12 @@ func sortDecisionsByPriority(decisions []kernel.Decision) []kernel.Decision {
 		switch action {
 		case "close_long", "close_short":
 			return 1 // Highest priority: close positions first
+		case "move_stop":
+			return 2 // Move stop-loss after closes, before new opens
 		case "open_long", "open_short":
-			return 2 // Second priority: open positions later
+			return 3 // Second priority: open positions later
 		case "hold", "wait":
-			return 3 // Lowest priority: wait
+			return 4 // Lowest priority: wait
 		default:
 			return 999 // Unknown actions at the end
 		}
@@ -2290,4 +2340,3 @@ func getSideFromAction(action string) string {
 func (at *AutoTrader) GetOpenOrders(symbol string) ([]OpenOrder, error) {
 	return at.trader.GetOpenOrders(symbol)
 }
-

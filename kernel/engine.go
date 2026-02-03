@@ -130,7 +130,7 @@ type Context struct {
 // Decision AI trading decision
 type Decision struct {
 	Symbol string `json:"symbol"`
-	Action string `json:"action"` // Standard: "open_long", "open_short", "close_long", "close_short", "hold", "wait"
+	Action string `json:"action"` // Standard: "open_long", "open_short", "close_long", "close_short", "hold", "wait", "move_stop"
 	// Grid actions: "place_buy_limit", "place_sell_limit", "cancel_order", "cancel_all_orders", "pause_grid", "resume_grid", "adjust_grid"
 
 	// Opening position parameters
@@ -1041,7 +1041,7 @@ func (e *StrategyEngine) BuildSystemPrompt(accountEquity float64, variant string
 	sb.WriteString("]\n```\n")
 	sb.WriteString("</decision>\n\n")
 	sb.WriteString("## Field Description\n\n")
-	sb.WriteString("- `action`: open_long | open_short | close_long | close_short | hold | wait\n")
+	sb.WriteString("- `action`: open_long | open_short | close_long | close_short | hold | wait | move_stop\n")
 	sb.WriteString(fmt.Sprintf("- `confidence`: 0-100 (opening recommended ≥ %d)\n", riskControl.MinConfidence))
 	sb.WriteString("- Required when opening: leverage, position_size_usd, stop_loss, take_profit, confidence, risk_usd\n")
 	sb.WriteString("- **IMPORTANT**: All numeric values must be calculated numbers, NOT formulas/expressions (e.g., use `27.76` not `3000 * 0.01`)\n\n")
@@ -1865,6 +1865,7 @@ func validateDecision(d *Decision, accountEquity float64, btcEthLeverage, altcoi
 		"close_short": true,
 		"hold":        true,
 		"wait":        true,
+		"move_stop":   true,
 	}
 
 	if !validActions[d.Action] {
@@ -1953,6 +1954,12 @@ func validateDecision(d *Decision, accountEquity float64, btcEthLeverage, altcoi
 		if riskRewardRatio < 3.0 {
 			return fmt.Errorf("risk/reward ratio too low (%.2f:1), must be ≥3.0:1 [risk: %.2f%% reward: %.2f%%] [stop loss: %.2f take profit: %.2f]",
 				riskRewardRatio, riskPercent, rewardPercent, d.StopLoss, d.TakeProfit)
+		}
+	}
+
+	if d.Action == "move_stop" {
+		if d.StopLoss <= 0 {
+			return fmt.Errorf("stop_loss must be greater than 0: %.2f", d.StopLoss)
 		}
 	}
 
